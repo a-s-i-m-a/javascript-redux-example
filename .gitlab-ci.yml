@@ -1,0 +1,37 @@
+stages:
+  - build
+  - docker-build
+  - deploy
+build:
+  stage: build
+  image: node
+  script:
+    - echo "Start building App"
+    - npm install
+    - npm run build
+    - echo "Build successfully!"
+  artifacts:
+    expire_in: 1 hour
+    paths:
+      - build
+      - node_modules/
+docker-build:
+  stage: docker-build
+  image: docker:latest
+  services:
+    - name: docker:19.03.8-dind
+  before_script:
+    - cat $YANDEX_REGISTRY_KEY | docker login --username json_key --password-stdin $YANDEX_REGISTRY
+  script:
+    - docker build --pull -t "$YANDEX_REGISTRY_IMAGE:0.0.1-beta" .
+    - docker push "$YANDEX_REGISTRY_IMAGE:0.0.1-beta"
+deploy:
+  stage: deploy
+  image: kroniak/ssh-client
+  before_script:
+    - echo "deploying app"
+  script:
+    - chmod 400 $SSH_PRIVATE_KEY
+    - ssh -o StrictHostKeyChecking=no -i $SSH_PRIVATE_KEY admin@$PROD_SERVER_IP "docker pull $YANDEX_REGISTRY_IMAGE:0.0.1-beta"
+    - ssh -o StrictHostKeyChecking=no -i $SSH_PRIVATE_KEY admin@$PROD_SERVER_IP "docker stop web_front || true && docker rm web_front || true"
+    - ssh -o StrictHostKeyChecking=no -i $SSH_PRIVATE_KEY admin@$PROD_SERVER_IP "docker run -p 5000:5000 -d --name web_front --network='intranet' $YANDEX_REGISTRY_IMAGE:0.0.1-beta"
